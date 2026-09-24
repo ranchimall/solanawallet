@@ -2449,6 +2449,7 @@
                 for (const keys in solanaContacts) {
                   const walletAddress =
                     solanaContacts[keys].walletAddressOrSignature;
+                  if (!walletAddress) continue;
 
                   const isFloAddr = solanaContacts[keys].isfloaddr;
                   console.log("isfloaddr", isFloAddr);
@@ -2466,7 +2467,7 @@
                             >
                               <sm-chip value=${walletAddress} selected>SOL</sm-chip>
                               <sm-chip value=${isFloAddr}
-                                >${isFloAddr.startsWith("bc")
+                                >${String(isFloAddr || "").startsWith("bc")
                           ? "BTC"
                           : "FLO"}</sm-chip
                               >
@@ -3096,6 +3097,10 @@
             if (!walletAddressOrSignature) {
               walletAddressOrSignature = getRef("wallet_address_input").value;
             }
+            walletAddressOrSignature = (walletAddressOrSignature || "").trim();
+            if (!walletAddressOrSignature) {
+              return notify("Please enter a Solana address", "error");
+            }
 
             // Determine if input is an address or signature
             const inputType = determineInputType(walletAddressOrSignature);
@@ -3132,6 +3137,10 @@
               walletAddressOrSignature.length <= 44
                 ? walletAddressOrSignature
                 : floSolana.wif2SolanaAddress(walletAddressOrSignature);
+
+            if (!walletAddressOrSignature) {
+              return notify("Invalid address: could not resolve a Solana address from the input", "error");
+            }
 
             // Continue with existing code...
 
