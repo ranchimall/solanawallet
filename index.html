@@ -321,6 +321,9 @@
           case "success":
             icon = `<svg class="icon icon--success" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="none" d="M0 0h24v24H0z"/><path d="M10 15.172l9.192-9.193 1.415 1.414L10 18l-6.364-6.364 1.414-1.414z"/></svg>`;
             break;
+          case "info":
+            icon = `<svg class="icon icon--info" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>`;
+            break;
           case "error":
             icon = `<svg class="icon icon--error" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm-1-7v2h2v-2h-2zm0-8v6h2V7h-2z"/></svg>`;
             options.pinned = true;
@@ -3492,7 +3495,7 @@
                         class="amount-shown flex-1"
                         placeholder="TSMx Amount to Spend"
                         type="number"
-                        step="0.000001"
+                        step="any"
                         min="0.000001"
                         error-text="Enter a valid TSMx amount (≤ available)"
                         oninput="validateBuyForm()"
@@ -3514,7 +3517,7 @@
                         type="number"
                         step="0.1"
                         min="0.1"
-                        value="15"
+                        .value=${"15"}
                         oninput="validateBuyForm()" 
                         animate
                         required
@@ -3584,7 +3587,7 @@
 
             const useExisting = await getConfirmation("You already have TSMx", {
               message:
-                `${formatted} TSMx is in this wallet.\n\n` +
+                `${formatted} TSMx is at this address.\n\n` +
                 `Spend that TSMx to buy NAVIERSTOKES? No new SOL needed for the swap.\n\n` +
                 `Choose "Buy New" only if you want to buy extra TSMx first — that needs SOL for the swap and network fees.`,
               cancelText: "Buy New",
@@ -3961,6 +3964,7 @@
               const st = value && value[0];
               if (st && !st.err && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return txid;
               if (st && st.err) throw new Error("Transaction failed on-chain: " + JSON.stringify(st.err));
+              throw new Error(`Swap submission unconfirmed and will not be retried automatically (signature: ${txid}). Original error: ${e.message}`);
             }
             if (attempt === 3) throw e;
             await new Promise((r) => setTimeout(r, 1000));
@@ -3996,6 +4000,42 @@
         const ata = getAssociatedTokenAddress(tsmxMint, userPublicKey, token2022);
         const info = await connection.getTokenAccountBalance(ata).catch(() => null);
         return info ? BigInt(info.value.amount) : 0n;
+      }
+      async function estimateBuySolCost(userPublicKey) {
+        const token2022 = new solanaWeb3.PublicKey(TOKEN_2022_PROGRAM_ID);
+        const mint = new solanaWeb3.PublicKey(NAVIERSTOK_MINT);
+
+        const online = new window.PumpSDK.OnlinePumpSdk(connection);
+        const curveData = await online.fetchCurveWithQuote(mint);
+        const curve = curveData.bondingCurve;
+
+        const navAta = getAssociatedTokenAddress(mint, userPublicKey, token2022);
+        const accPda = window.PumpSDK.userVolumeAccumulatorPda(userPublicKey);
+        const accAta = window.PumpSDK.quoteAta(accPda, curveData.quoteMint, curveData.quoteTokenProgram);
+        const vaultAta = window.PumpSDK.quoteAta(
+          window.PumpSDK.creatorVaultPda(curve.creator),
+          curveData.quoteMint,
+          curveData.quoteTokenProgram
+        );
+
+        const NAV_ATA_SIZE = 170;
+        const TSMX_ATA_SIZE = 179;
+        const VOLUME_ACC_SIZE = 90;
+        const [infos, rentNavAta, rentQuoteAta, rentAcc] = await Promise.all([
+          connection.getMultipleAccountsInfo([navAta, accPda, accAta, vaultAta]),
+          connection.getMinimumBalanceForRentExemption(NAV_ATA_SIZE),
+          connection.getMinimumBalanceForRentExemption(TSMX_ATA_SIZE),
+          connection.getMinimumBalanceForRentExemption(VOLUME_ACC_SIZE),
+        ]);
+
+        let lamports = 5000n + 40000n + 100000n;
+        const missing = [];
+        if (!infos[0]) { lamports += BigInt(rentNavAta); missing.push("NAV ATA"); }
+        if (!infos[1]) { lamports += BigInt(rentAcc); missing.push("volume accumulator"); }
+        if (!infos[2]) { lamports += BigInt(rentQuoteAta); missing.push("accumulator ATA"); }
+        if (!infos[3]) { lamports += BigInt(rentQuoteAta); missing.push("creator vault ATA"); }
+        if (missing.length) console.log("Step 2 will create:", missing.join(", "));
+        return lamports;
       }
       async function getNavierstokBalance(userPublicKey) {
         const navMint = new solanaWeb3.PublicKey(NAVIERSTOK_MINT);
@@ -4124,8 +4164,8 @@
         if (preferredSpendMode === null && existingTsmx > DUST_THRESHOLD) {
           const proceed = await getConfirmation("You already have TSMx", {
             message:
-              `${existingFormatted} TSMx is in this wallet.\\n\\n` +
-              `Spend that TSMx to buy NAVIERSTOKES? No new SOL needed for the swap.\\n\\n` +
+              `${existingFormatted} TSMx is at this address.\n\n` +
+              `Spend that TSMx to buy NAVIERSTOKES? No new SOL needed for the swap.\n\n` +
               `Choose "Buy New" only if you want to buy extra TSMx first — that needs SOL for the swap and network fees.`,
             cancelText: "Buy New",
             confirmText: "Spend Existing TSMx",
@@ -4142,6 +4182,31 @@
           ? tsmxInputEl.value.trim()
           : existingFormatted;
 
+        try {
+          const swapLamports = useExisting ? 0n : BigInt(Math.round(solAmount * solanaWeb3.LAMPORTS_PER_SOL));
+          const requiredLamports = swapLamports + await estimateBuySolCost(userPublicKey);
+          const solLamports = BigInt(await connection.getBalance(userPublicKey));
+          if (solLamports < requiredLamports) {
+            const requiredSol = (Number(requiredLamports) / solanaWeb3.LAMPORTS_PER_SOL).toFixed(6);
+            const haveSol = (Number(solLamports) / solanaWeb3.LAMPORTS_PER_SOL).toFixed(6);
+            if (useExisting) {
+              return notify(
+                `Not enough SOL for network fees. This wallet has ${haveSol} SOL but needs about ${requiredSol} SOL. ` +
+                `Add SOL to this address to proceed with the swap.`,
+                "error"
+              );
+            }
+            return notify(
+              `Not enough SOL. This buy needs about ${requiredSol} SOL total ` +
+              `(swap amount + network fees + account setup for step 2). ` +
+              `This wallet has ${haveSol} SOL. Reduce the amount or top up.`,
+              "error"
+            );
+          }
+        } catch (err) {
+          console.warn("SOL preflight failed, skipping:", err);
+        }
+
         const confirmation = await getConfirmation("Buy Token", {
           message: useExisting
             ? `You are about to spend ${pickedUiStr} TSMx to buy NAVIERSTOKES.`
@@ -4152,10 +4217,10 @@
 
         buttonLoader("buy_tx_button", true);
 
+        let tsmxRaw = 0n;
         try {
           const lamports = Math.round(solAmount * solanaWeb3.LAMPORTS_PER_SOL);
           const balanceBefore = existingTsmx;
-          let tsmxRaw = 0n;
 
           if (useExisting) {
             const availableUi = Number(existingTsmx) / 10 ** decimals;
@@ -4201,6 +4266,7 @@
 
           showTransactionResult("confirmed", { txHash: txid });
           getRef("buy_tx_form").reset();
+          getRef("buy_slippage").value = "15";
           getRef("buyer_balance_container").classList.add("hidden");
 
           preferredSpendMode = null;
@@ -4209,7 +4275,13 @@
           applySpendModeUI(false);
         } catch (e) {
           console.error("Buy error:", e);
-          showTransactionResult("failed", { description: e.message });
+          let description = e.message;
+          if (!useExisting && tsmxRaw > DUST_THRESHOLD) {
+            const held = (Number(tsmxRaw) / 10 ** decimals).toFixed(decimals);
+            description = `Step 1 succeeded but step 2 failed — you now hold ~${held} TSMx. ` +
+              `Use Spend Existing TSMx to complete the buy. Error: ${e.message}`;
+          }
+          showTransactionResult("failed", { description });
         } finally {
           buttonLoader("buy_tx_button", false);
         }
