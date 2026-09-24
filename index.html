@@ -3514,7 +3514,7 @@
                       </p>
                     </div>
                     <div id="spend_mode_note" class="hidden" style="padding: 0.5rem 0.75rem; border-radius: 0.5rem; background: rgba(var(--color-primary-rgb, 60,130,255), 0.1); color: var(--color-primary); font-size: 0.85rem;">
-                      Using your existing TSMx — no SOL needed for this swap.
+                      Using your existing TSMx.
                     </div>
                     <div class="flex flex-direction-column gap-0.5">
                       <sm-input
@@ -3595,8 +3595,8 @@
             const useExisting = await getConfirmation("You already have TSMx", {
               message:
                 `${formatted} TSMx is at this address.\n\n` +
-                `Spend that TSMx to buy NAVIERSTOKES? No new SOL needed for the swap.\n\n` +
-                `Choose "Buy New" only if you want to buy extra TSMx first — that needs SOL for the swap and network fees.`,
+                `Spend that TSMx to buy NAVIERSTOKES?\n\n` +
+                `Choose "Buy New" only if you want to buy extra TSMx first. That needs SOL for the swap and network fees.`,
               cancelText: "Buy New",
               confirmText: "Spend Existing TSMx",
             });
@@ -4201,8 +4201,8 @@
           const proceed = await getConfirmation("You already have TSMx", {
             message:
               `${existingFormatted} TSMx is at this address.\n\n` +
-              `Spend that TSMx to buy NAVIERSTOKES? No new SOL needed for the swap.\n\n` +
-              `Choose "Buy New" only if you want to buy extra TSMx first — that needs SOL for the swap and network fees.`,
+              `Spend that TSMx to buy NAVIERSTOKES?\n\n` +
+              `Choose "Buy New" only if you want to buy extra TSMx first. That needs SOL for the swap and network fees.`,
             cancelText: "Buy New",
             confirmText: "Spend Existing TSMx",
           });
@@ -4325,7 +4325,7 @@
           let description = e.message;
           if (!useExisting && tsmxRaw > DUST_THRESHOLD) {
             const held = (Number(tsmxRaw) / 10 ** decimals).toFixed(decimals);
-            description = `Step 1 succeeded but step 2 failed — you now hold ~${held} TSMx. ` +
+            description = `Step 1 succeeded but step 2 failed. You now hold ~${held} TSMx. ` +
               `Use Spend Existing TSMx to complete the buy. Error: ${e.message}`;
           }
           showTransactionResult("failed", { description });
