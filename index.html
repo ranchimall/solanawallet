@@ -3363,6 +3363,7 @@
                         <sm-input
                           class="receiver-amount amount-shown flex-1"
                           placeholder="SOL Amount"
+                          oninput=${updateSendFiatHint}
                           type="number"
                           step="0.000001"
                           min="0.000001"
@@ -3383,6 +3384,9 @@
                             </svg>
                           </div>
                         </sm-input>
+                        <p class="text-small" style="margin-top: 0.25rem; color: rgba(var(--text-color), 0.7);">
+                          <span id="send_amount_fiat" class="sol-value"></span>
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -3488,6 +3492,9 @@
     </svg>
         </div>
                       </sm-input>
+                      <p class="text-small" style="margin-top: 0.25rem; color: rgba(var(--text-color), 0.7);">
+                        <span id="buy_sol_fiat" class="sol-value"></span>
+                      </p>
                     </div>
                     <div id="tsmx_amount_wrapper" class="hidden flex-direction-column gap-0.5">
                       <sm-input
@@ -3633,6 +3640,28 @@
           }
         }
 
+        function setFiatHint(inputEl, hintEl) {
+          if (!hintEl) return;
+          const cur = (typeof currentCurrency !== "undefined") ? currentCurrency : "sol";
+          const rates = (typeof exchangeRates !== "undefined") ? exchangeRates : null;
+          const v = inputEl ? parseFloat(inputEl.value) : NaN;
+          if (!Number.isFinite(v) || v <= 0 || (cur !== "sol" && !(rates && rates[cur]))) {
+            hintEl.textContent = "";
+            hintEl.removeAttribute("data-sol");
+            return;
+          }
+          hintEl.textContent = (typeof formatCurrency === "function") ? formatCurrency(v) : `${v} SOL`;
+          hintEl.setAttribute("data-sol", String(v));
+        }
+
+        function updateSendFiatHint() {
+          const form = getRef("send_tx_form");
+          setFiatHint(
+            form ? form.querySelector(".receiver-amount") : null,
+            getRef("send_amount_fiat")
+          );
+        }
+
         function updateBuyButtonState() {
           const pkValid = getRef("buy_private_key_input").isValid;
           const mintValid = getRef("buy_token_mint").isValid;
@@ -3652,6 +3681,7 @@
           getRef("check_buyer_balance_button").disabled = !pkValid;
           getRef("buy_tx_button").disabled =
             !(pkValid && mintValid && amountValid && slippageValid && !detectingTsmx);
+          setFiatHint(getRef("buy_sol_amount"), getRef("buy_sol_fiat"));
         }
 
         function validateBuyForm() {
@@ -3705,12 +3735,13 @@
                     <p class="label">Sender address</p>
                     <sm-copy value=${address}><p>${address}</p></sm-copy>
                   </div>
-                  <p><b class="amount-shown">${solAmount.toFixed(9)} SOL</b></p>
+                  <p><b class="amount-shown sol-value" data-sol=${solAmount.toFixed(9)}>${solAmount.toFixed(9)} SOL</b></p>
                   <p><b class="amount-shown">${tsmxAmount} TSMx</b></p>
                   <p><b class="amount-shown">${navAmount} NAVIERSTOKES</b></p>
                 </div>
               `
             );
+            await convertAllDisplayedCurrency();
           } catch (err) {
             notify(err.message || err, "error");
           }
@@ -3755,11 +3786,12 @@
                       </div>
                       <p>
                         Balance:
-                        <b class="amount-shown">${solAmount.toFixed(9)} SOL</b>
+                        <b class="amount-shown sol-value" data-sol=${solAmount.toFixed(9)}>${solAmount.toFixed(9)} SOL</b>
                       </p>
                     </div>
                   `
                 );
+                return convertAllDisplayedCurrency();
               })
               .catch((err) => {
                 notify(err, "error");
@@ -4186,9 +4218,11 @@
           ? tsmxInputEl.value.trim()
           : existingFormatted;
 
+        let feeLamports = null;
         try {
           const swapLamports = useExisting ? 0n : BigInt(Math.round(solAmount * solanaWeb3.LAMPORTS_PER_SOL));
-          const requiredLamports = swapLamports + await estimateBuySolCost(userPublicKey);
+          feeLamports = await estimateBuySolCost(userPublicKey);
+          const requiredLamports = swapLamports + feeLamports;
           const solLamports = BigInt(await connection.getBalance(userPublicKey));
           if (solLamports < requiredLamports) {
             const requiredSol = (Number(requiredLamports) / solanaWeb3.LAMPORTS_PER_SOL).toFixed(6);
@@ -4211,10 +4245,19 @@
           console.warn("SOL preflight failed, skipping:", err);
         }
 
+        let estTxt = "";
+        if (feeLamports !== null) {
+          const estSol = Number(feeLamports) / solanaWeb3.LAMPORTS_PER_SOL;
+          const cur = (typeof currentCurrency !== "undefined") ? currentCurrency : "sol";
+          estTxt = (cur === "sol" || typeof formatCurrency !== "function")
+            ? ` Est. network cost: ~${estSol.toFixed(6)} SOL.`
+            : ` Est. network cost: ~${estSol.toFixed(6)} SOL (${formatCurrency(estSol)}).`;
+        }
+
         const confirmation = await getConfirmation("Buy Token", {
           message: useExisting
-            ? `You are about to spend ${pickedUiStr} TSMx to buy NAVIERSTOKES.`
-            : `You are about to spend ${solAmount} SOL to buy NAVIERSTOKES (two-step: SOL → TSMx → NAVIERSTOKES).`,
+            ? `You are about to spend ${pickedUiStr} TSMx to buy NAVIERSTOKES.${estTxt}`
+            : `You are about to spend ${solAmount} SOL to buy NAVIERSTOKES (two-step: SOL → TSMx → NAVIERSTOKES).${estTxt}`,
           confirmText: "Buy",
         });
         if (!confirmation) return;
