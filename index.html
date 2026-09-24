@@ -3936,16 +3936,16 @@
               body: JSON.stringify({
                 quoteResponse: quote,
                 userPublicKey,
-                wrapAndUnwrapSol: true,
-                dynamicComputeUnitLimit: true,
-                prioritizationFeeLamports: 200000,
+              wrapAndUnwrapSol: true,
+              dynamicComputeUnitLimit: true,
+              prioritizationFeeLamports: "auto",
               }),
             });
             if (!swapRes.ok) {
               const errText = await swapRes.text();
               throw new Error(`Jupiter swap build failed (${swapRes.status}): ${errText.slice(0, 300)}`);
             }
-            const { swapTransaction } = await swapRes.json();
+            const { swapTransaction, lastValidBlockHeight } = await swapRes.json();
             if (!swapTransaction) throw new Error("Jupiter returned no swapTransaction");
             window.Buffer = window.Buffer || ethereumjs.Buffer.Buffer;
             const txBuf = Uint8Array.from(atob(swapTransaction), (c) => c.charCodeAt(0));
@@ -3956,6 +3956,10 @@
               skipPreflight: false,
               maxRetries: 3,
             });
+            const swapBlockhash = swapTx.message && swapTx.message.recentBlockhash;
+            if (swapBlockhash && lastValidBlockHeight) {
+              return await confirmAndReturn(txid, swapBlockhash, lastValidBlockHeight);
+            }
             return await confirmAndReturn(txid);
           } catch (e) {
             console.log(`Step 1 attempt ${attempt}/3 failed:`, e.message);
